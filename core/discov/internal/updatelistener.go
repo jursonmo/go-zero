@@ -13,5 +13,6 @@ type (
 	UpdateListener interface {
 		OnAdd(kv KV)
 		OnDelete(kv KV)
+		OnStateChange(stateUp bool)
 	}
 )

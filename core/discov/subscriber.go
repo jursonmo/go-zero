@@ -47,9 +47,19 @@ func (s *Subscriber) AddListener(listener func()) {
 	s.items.addListener(listener)
 }
 
+// AddDownListener adds listener to s.
+func (s *Subscriber) AddStateListener(listener func(stateUp bool)) {
+	s.items.addStateListener(listener)
+}
+
 // Values returns all the subscription values.
 func (s *Subscriber) Values() []string {
 	return s.items.getValues()
+}
+
+// State returns the state of the subscriber.
+func (s *Subscriber) State() bool {
+	return s.items.getState()
 }
 
 // Exclusive means that key value can only be 1:1,
@@ -89,15 +99,20 @@ type container struct {
 	dirty     *syncx.AtomicBool
 	listeners []func()
 	lock      sync.Mutex
+	//etcd state change listeners
+	stateUp        atomic.Value
+	stateListeners []func(stateUp bool)
 }
 
 func newContainer(exclusive bool) *container {
-	return &container{
+	c := &container{
 		exclusive: exclusive,
 		values:    make(map[string][]string),
 		mapping:   make(map[string]string),
 		dirty:     syncx.ForAtomicBool(true),
 	}
+	c.stateUp.Store(false)
+	return c
 }
 
 func (c *container) OnAdd(kv internal.KV) {
@@ -108,6 +123,23 @@ func (c *container) OnAdd(kv internal.KV) {
 func (c *container) OnDelete(kv internal.KV) {
 	c.removeKey(kv.Key)
 	c.notifyChange()
+}
+
+func (c *container) OnStateChange(stateUp bool) {
+	c.stateUp.Store(stateUp)
+	c.notifyStateChange(stateUp)
+}
+
+func (c *container) notifyStateChange(stateUp bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	for _, l := range c.stateListeners {
+		l(stateUp)
+	}
+}
+
+func (c *container) getState() bool {
+	return c.stateUp.Load().(bool)
 }
 
 // addKv adds the kv, returns if there are already other keys associate with the value
@@ -137,6 +169,12 @@ func (c *container) addKv(key, value string) ([]string, bool) {
 func (c *container) addListener(listener func()) {
 	c.lock.Lock()
 	c.listeners = append(c.listeners, listener)
+	c.lock.Unlock()
+}
+
+func (c *container) addStateListener(listener func(stateUp bool)) {
+	c.lock.Lock()
+	c.stateListeners = append(c.stateListeners, listener)
 	c.lock.Unlock()
 }
 

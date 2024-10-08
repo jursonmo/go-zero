@@ -225,3 +225,15 @@ func TestWithSubEtcdAccount(t *testing.T) {
 	assert.Equal(t, user, account.User)
 	assert.Equal(t, "bar", account.Pass)
 }
+
+func TestSubscriber_AddDownListener(t *testing.T) {
+	sub := new(Subscriber)
+	Exclusive()(sub)
+	sub.items = newContainer(sub.exclusive)
+	var count int32
+	sub.AddStateListener(func(stateUp bool) {
+		atomic.AddInt32(&count, 1)
+	})
+	sub.items.notifyStateChange(true)
+	assert.Equal(t, int32(1), atomic.LoadInt32(&count))
+}

@@ -80,14 +80,15 @@ func (r *Registry) getCluster(endpoints []string) (c *cluster, exists bool) {
 }
 
 type cluster struct {
-	endpoints  []string
-	key        string
-	values     map[string]map[string]string
-	listeners  map[string][]UpdateListener
-	watchGroup *threading.RoutineGroup
-	done       chan lang.PlaceholderType
-	lock       sync.RWMutex
-	exactMatch bool
+	endpoints      []string
+	key            string
+	values         map[string]map[string]string
+	listeners      map[string][]UpdateListener
+	stateListeners []func(bool)
+	watchGroup     *threading.RoutineGroup
+	done           chan lang.PlaceholderType
+	lock           sync.RWMutex
+	exactMatch     bool
 }
 
 func newCluster(endpoints []string) *cluster {
@@ -257,6 +258,7 @@ func (c *cluster) load(cli EtcdClient, key string) int64 {
 func (c *cluster) monitor(key string, l UpdateListener, exactMatch bool) error {
 	c.lock.Lock()
 	c.listeners[key] = append(c.listeners[key], l)
+	c.stateListeners = append(c.stateListeners, l.OnStateChange)
 	c.exactMatch = exactMatch
 	c.lock.Unlock()
 
@@ -358,10 +360,23 @@ func (c *cluster) watchStream(cli EtcdClient, key string, rev int64) error {
 	}
 }
 
+func (c *cluster) handleStateChange(stateUp bool) {
+	c.lock.Lock()
+	stateListeners := append([]func(bool){}, c.stateListeners...)
+	c.lock.Unlock()
+
+	for _, l := range stateListeners {
+		l(stateUp)
+	}
+}
+
 func (c *cluster) watchConnState(cli EtcdClient) {
 	watcher := newStateWatcher()
 	watcher.addListener(func() {
 		go c.reload(cli)
+	})
+	watcher.addStateListener(func(stateUp bool) {
+		go c.handleStateChange(stateUp)
 	})
 	watcher.watch(cli.ActiveConnection())
 }

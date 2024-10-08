@@ -300,3 +300,6 @@ func (m *mockListener) OnAdd(_ KV) {
 
 func (m *mockListener) OnDelete(_ KV) {
 }
+
+func (m *mockListener) OnStateChange(_ bool) {
+}
